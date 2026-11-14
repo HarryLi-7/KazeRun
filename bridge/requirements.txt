@@ -1,0 +1,6 @@
+garminconnect==0.3.17
+garmin-mcp>=0.1.0
+mcp>=1.30.0
+curl_cffi>=0.17.0
+fitparse>=1.2.0
+requests>=2.32.0

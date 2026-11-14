@@ -1,0 +1,43 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Swift / Xcode / SPM
+.build/
+Packages/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+.swiftpm/
+
+# App Distribution Output
+dist/
+
+# Python / Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env
+env/
+venv
+venv/
+.venv
+.venv/
+ENV/
+env.bak/
+venv.bak/
+bridge/.venv
+bridge/.venv/
+bridge/__pycache__/
+
+# User Data / Logs / Temporary Files
+*.log
+*.tmp
+.cache/
