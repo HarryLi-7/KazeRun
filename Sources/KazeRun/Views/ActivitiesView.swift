@@ -29,6 +29,7 @@ struct ActivitiesView: View {
     @State private var typeFilter: String = "all"
     @State private var selectedMetric: TelemetryMetric = .pace
     @State private var hoveredTime: Double?
+    @State private var isListCollapsed: Bool = false
 
     private var filteredActivities: [ActivityItem] {
         appState.activities.filter { act in
@@ -53,8 +54,10 @@ struct ActivitiesView: View {
 
     var body: some View {
         HSplitView {
-            activityListPane
-                .frame(minWidth: 280, idealWidth: 320, maxWidth: 380)
+            if !isListCollapsed {
+                activityListPane
+                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 380)
+            }
 
             activityDetailPane
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -126,6 +129,12 @@ struct ActivitiesView: View {
                     }
                     .padding(.vertical, 4)
                     .tag(act.id)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                            isListCollapsed = true
+                        }
+                    }
                 }
 
                 if appState.hasMoreActivities {
@@ -215,6 +224,22 @@ struct ActivitiesView: View {
                 }
                 Spacer()
                 HStack(spacing: 8) {
+                    Button {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                            isListCollapsed.toggle()
+                        }
+                    } label: {
+                        Label(
+                            isListCollapsed
+                                ? (appState.prefs.language == .ja ? "リスト表示" : "展开列表")
+                                : (appState.prefs.language == .ja ? "全画面" : "宽屏沉浸"),
+                            systemImage: isListCollapsed ? "sidebar.left" : "arrow.up.left.and.arrow.down.right"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut("b", modifiers: .command)
+                    .help(isListCollapsed ? (appState.prefs.language == .ja ? "リストを展開 (⌘B)" : "展开跑步列表 (⌘B)") : (appState.prefs.language == .ja ? "リストを非表示にして全画面表示 (⌘B)" : "收起列表，全宽沉浸查看详情 (⌘B)"))
+
                     Button {
                         Task { _ = await appState.downloadFIT(activityId: item.id) }
                     } label: {
@@ -705,7 +730,7 @@ struct ActivitiesView: View {
                     KazeSectionHeader(
                         jpTag: "SCIENCE",
                         title: isJa ? "運動生理学インテリジェント分析" : "运动生理学智能分析",
-                        subtitle: isJa ? "前半と後半の出力効率(EF)・ペース変動・ピッチ安定性" : "前/后半程效率因子(EF)·巡航离散度·步频稳态"
+                        subtitle: isJa ? "前半・後半EF · 巡航離散度 · ピッチ安定性" : "前/后半程效率(EF) · 巡航离散度 · 步频稳态"
                     )
                     Spacer()
                     Text(isJa ? "20kサンプリング" : "20k 高频解算")
@@ -718,13 +743,20 @@ struct ActivitiesView: View {
                 }
 
                 HStack(alignment: .top, spacing: 12) {
+                    let h1Pace = appState.prefs.formatPace(secondsPerKm: analysis.half1PaceSec)
+                    let h2Pace = appState.prefs.formatPace(secondsPerKm: analysis.half2PaceSec)
+                    let h1HR = Int(analysis.half1HR)
+                    let h2HR = Int(analysis.half2HR)
+                    let sub1 = isJa ? "前半: \(h1Pace) (\(h1HR)bpm)" : "前半: \(h1Pace) · \(h1HR) bpm"
+                    let sub2 = isJa ? "後半: \(h2Pace) (\(h2HR)bpm)" : "后半: \(h2Pace) · \(h2HR) bpm"
+
                     scienceMetricColumn(
                         tag: "PA:HR",
                         title: isJa ? "有酸素デカップリング" : "有氧脱钩率",
                         value: analysis.decouplingFormatted,
                         tone: analysis.decouplingTone,
                         status: analysis.decouplingStatus(isJa: isJa),
-                        subMetric: "前半 \(appState.prefs.formatPace(secondsPerKm: analysis.half1PaceSec)) (\(Int(analysis.half1HR))bpm) → 后半 \(appState.prefs.formatPace(secondsPerKm: analysis.half2PaceSec)) (\(Int(analysis.half2HR))bpm)",
+                        subMetrics: [sub1, sub2],
                         brief: analysis.decouplingBrief(isJa: isJa)
                     )
 
@@ -734,7 +766,7 @@ struct ActivitiesView: View {
                         value: String(format: "%.1f%%", analysis.paceCV),
                         tone: analysis.paceCVTone,
                         status: analysis.paceCVStatus(isJa: isJa),
-                        subMetric: isJa ? "標準偏差 σ/μ" : "配速标准差 / 均值 (σ/μ)",
+                        subMetrics: [isJa ? "標準偏差 σ/μ" : "配速标准差 / 均值 (σ/μ)"],
                         brief: analysis.paceCVBrief(isJa: isJa)
                     )
 
@@ -744,7 +776,7 @@ struct ActivitiesView: View {
                         value: String(format: "%.0f%%", analysis.cadenceStability),
                         tone: analysis.cadenceTone,
                         status: analysis.cadenceStatus(isJa: isJa),
-                        subMetric: isJa ? "±3 spm 最適窓" : "均频 ±3 spm 黄金窗口占比",
+                        subMetrics: [isJa ? "±3 spm 最適窓" : "均频 ±3 spm 黄金窗口占比"],
                         brief: analysis.cadenceBrief(isJa: isJa)
                     )
                 }
@@ -759,7 +791,7 @@ struct ActivitiesView: View {
         value: String,
         tone: Color,
         status: String,
-        subMetric: String,
+        subMetrics: [String],
         brief: String
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -798,11 +830,15 @@ struct ActivitiesView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 4))
 
-            Text(subMetric)
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(subMetrics, id: \.self) { line in
+                    Text(line)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.top, 2)
 
             Text(brief)
                 .font(.system(size: 11))
