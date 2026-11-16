@@ -14,7 +14,7 @@ concurrency:
 jobs:
   build-and-verify:
     name: Build & Verify (macOS)
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: Checkout Code
