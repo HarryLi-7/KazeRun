@@ -152,6 +152,14 @@ final class AppState {
         }
     }
 
+    func logout() async {
+        _ = try? await bridge.callDictionary(method: "auth_logout")
+        await refreshAuthStatus()
+        dashboard = nil
+        activities = []
+        setBanner("已退出当前佳明账号", isError: false)
+    }
+
     func syncAll(forceToday: Bool = false) async {
         // 点击全量同步或刷新按钮时，如果处于跟踪今日模式或处于过夜跨天状态，自动更新到最新的今天
         if isTrackingToday || forceToday || Calendar.current.isDateInYesterday(selectedDate) {

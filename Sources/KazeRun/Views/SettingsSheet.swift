@@ -354,10 +354,14 @@ struct SettingsSheet: View {
 
     private func formatDeepSeekModelLabel(_ id: String) -> String {
         switch id {
+        case "deepseek-flash":
+            return "deepseek-flash (极速 · 默认推荐)"
+        case "deepseek-v4-pro":
+            return "deepseek-v4-pro (推理增强)"
         case "deepseek-chat":
-            return "deepseek-chat (V3 · 默认推荐)"
+            return "deepseek-chat (V3 通用)"
         case "deepseek-reasoner":
-            return "deepseek-reasoner (R1 · 深度推理)"
+            return "deepseek-reasoner (R1 深度推理)"
         default:
             return id
         }
@@ -365,16 +369,14 @@ struct SettingsSheet: View {
 
     private func formatGeminiModelLabel(_ id: String) -> String {
         switch id {
+        case "gemini-flash-latest":
+            return "gemini-flash-latest (极速 · 默认推荐)"
         case "gemini-2.5-flash":
-            return "gemini-2.5-flash (极速 · 默认推荐)"
+            return "gemini-2.5-flash (稳定极速)"
         case "gemini-2.5-pro":
-            return "gemini-2.5-pro (深度推理与长文本)"
+            return "gemini-2.5-pro (深度推理)"
         case "gemini-2.0-flash":
-            return "gemini-2.0-flash (经典极速)"
-        case "gemini-1.5-pro":
-            return "gemini-1.5-pro"
-        case "gemini-1.5-flash":
-            return "gemini-1.5-flash"
+            return "gemini-2.0-flash"
         default:
             return id
         }

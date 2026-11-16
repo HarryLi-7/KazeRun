@@ -13,6 +13,105 @@ struct AuthSheet: View {
     @State private var errorText: String?
 
     var body: some View {
+        Group {
+            if let auth = appState.authStatus, auth.authenticated {
+                authenticatedView(status: auth)
+            } else {
+                loginFormView
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .onAppear {
+            if let existing = appState.authStatus {
+                isCn = existing.isCn
+                if let e = existing.email { email = e }
+            }
+        }
+    }
+
+    private func authenticatedView(status: AuthStatus) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("GARMIN CONNECT · AUTHENTICATED")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(KazeTheme.sage)
+                    Text("佳明账号已连接")
+                        .font(.system(size: 20, weight: .bold))
+                }
+                Spacer()
+                Button("关闭") { dismiss() }
+                    .buttonStyle(.bordered)
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(KazeTheme.sage)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(status.email ?? "当前佳明用户")
+                            .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        HStack(spacing: 8) {
+                            Text(status.isCn ? "中国区 (garmin.cn)" : "国际区 (garmin.com)")
+                                .font(.system(size: 11, design: .monospaced))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.secondary.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                            Text("● 凭证有效，安全连接中")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(KazeTheme.sage)
+                        }
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(KazeTheme.surfaceSubtle)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(KazeTheme.hairline, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                Text("您的 Garmin Connect OAuth 凭证安全保存在本机 Application Support 目录，应用启动与全量刷新时会自动通过该凭据直连同步。")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(3)
+            }
+
+            Divider()
+
+            HStack {
+                Button {
+                    Task {
+                        await appState.syncAll()
+                        dismiss()
+                    }
+                } label: {
+                    Label("立即同步全部数据 (⌘R)", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(KazeTheme.vermilion)
+
+                Spacer()
+
+                Button(role: .destructive) {
+                    Task {
+                        await appState.logout()
+                    }
+                } label: {
+                    Label("退出登录 / 切换账号", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var loginFormView: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
@@ -23,10 +122,8 @@ struct AuthSheet: View {
                         .font(.system(size: 20, weight: .bold))
                 }
                 Spacer()
-                if appState.authStatus?.authenticated == true {
-                    Button("关闭") { dismiss() }
-                        .buttonStyle(.bordered)
-                }
+                Button("关闭") { dismiss() }
+                    .buttonStyle(.bordered)
             }
 
             Text("凭据仅用于向 Garmin 官方 SSO 换取 OAuth Token，Token 安全保存在本机 Application Support 目录，不会上传任何第三方服务器。")
@@ -122,14 +219,6 @@ struct AuthSheet: View {
                     .buttonStyle(.bordered)
                     .disabled(isWorking)
                 }
-            }
-        }
-        .padding(24)
-        .frame(width: 460)
-        .onAppear {
-            if let existing = appState.authStatus {
-                isCn = existing.isCn
-                if let e = existing.email { email = e }
             }
         }
     }

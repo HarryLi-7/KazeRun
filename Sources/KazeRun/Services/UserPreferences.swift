@@ -162,13 +162,13 @@ final class UserPreferences {
 
     var deepseekApiKey: String = "" { didSet { save() } }
     var deepseekBaseUrl: String = "https://api.deepseek.com" { didSet { save() } }
-    var deepseekModel: String = "deepseek-chat" { didSet { save() } }
-    var deepseekDiscoveredModels: [String] = ["deepseek-chat", "deepseek-reasoner"] { didSet { save() } }
+    var deepseekModel: String = "deepseek-flash" { didSet { save() } }
+    var deepseekDiscoveredModels: [String] = ["deepseek-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"] { didSet { save() } }
 
     var geminiApiKey: String = "" { didSet { save() } }
     var geminiBaseUrl: String = "https://generativelanguage.googleapis.com" { didSet { save() } }
-    var geminiModel: String = "gemini-2.5-flash" { didSet { save() } }
-    var geminiDiscoveredModels: [String] = ["gemini-2.5-flash", "gemini-2.5-pro"] { didSet { save() } }
+    var geminiModel: String = "gemini-flash-latest" { didSet { save() } }
+    var geminiDiscoveredModels: [String] = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-pro"] { didSet { save() } }
 
     private let defaults = UserDefaults.standard
     private let key = "KazeRun_UserPreferences"
@@ -187,12 +187,19 @@ final class UserPreferences {
             self.aiProvider = saved.aiProvider ?? .deepseek
             self.deepseekApiKey = saved.deepseekApiKey ?? ""
             self.deepseekBaseUrl = saved.deepseekBaseUrl ?? "https://api.deepseek.com"
-            self.deepseekModel = saved.deepseekModel ?? "deepseek-chat"
-            self.deepseekDiscoveredModels = saved.deepseekDiscoveredModels ?? ["deepseek-chat", "deepseek-reasoner"]
+            let rawDeepseekModel = saved.deepseekModel ?? "deepseek-flash"
+            self.deepseekModel = (rawDeepseekModel == "deepseek-chat" || rawDeepseekModel.isEmpty) ? "deepseek-flash" : rawDeepseekModel
+            var dsModels = saved.deepseekDiscoveredModels ?? ["deepseek-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"]
+            if !dsModels.contains("deepseek-flash") { dsModels.insert("deepseek-flash", at: 0) }
+            self.deepseekDiscoveredModels = dsModels
+
             self.geminiApiKey = saved.geminiApiKey ?? ""
             self.geminiBaseUrl = saved.geminiBaseUrl ?? "https://generativelanguage.googleapis.com"
-            self.geminiModel = saved.geminiModel ?? "gemini-2.5-flash"
-            self.geminiDiscoveredModels = saved.geminiDiscoveredModels ?? ["gemini-2.5-flash", "gemini-2.5-pro"]
+            let rawGeminiModel = saved.geminiModel ?? "gemini-flash-latest"
+            self.geminiModel = (rawGeminiModel == "gemini-2.5-flash" || rawGeminiModel.isEmpty) ? "gemini-flash-latest" : rawGeminiModel
+            var gmModels = saved.geminiDiscoveredModels ?? ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-pro"]
+            if !gmModels.contains("gemini-flash-latest") { gmModels.insert("gemini-flash-latest", at: 0) }
+            self.geminiDiscoveredModels = gmModels
         }
     }
 
