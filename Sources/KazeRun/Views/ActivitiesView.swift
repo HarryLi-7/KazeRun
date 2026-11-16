@@ -171,6 +171,7 @@ struct ActivitiesView: View {
                         }
                         if !bundle.telemetryPoints.isEmpty {
                             telemetryChartCard(points: bundle.telemetryPoints)
+                            sportsScienceDiagnosticsCard(points: bundle.telemetryPoints)
                         }
                         HStack(alignment: .top, spacing: 14) {
                             hrZonesCard(zones: bundle.hrZones ?? [])
@@ -532,6 +533,339 @@ struct ActivitiesView: View {
         case .elevation: return KazeTheme.amber
         case .power: return .purple
         }
+    }
+
+    private struct SportsScienceAnalysis {
+        let decouplingPercent: Double
+        let paceCV: Double
+        let cadenceStability: Double
+        let half1PaceSec: Double
+        let half1HR: Double
+        let half2PaceSec: Double
+        let half2HR: Double
+    }
+
+    private func computeSportsScience(points: [TelemetryPoint]) -> SportsScienceAnalysis? {
+        let valid = points.filter { pt in
+            guard let hr = pt.hr, hr >= 90,
+                  let spd = pt.speed, spd >= 1.2,
+                  let pace = pt.pace, pace >= 150, pace <= 720 else { return false }
+            return true
+        }
+        guard valid.count >= 60 else { return nil }
+
+        let halfCount = valid.count / 2
+        let half1 = valid[..<halfCount]
+        let half2 = valid[halfCount...]
+
+        let ef1List = half1.compactMap { pt -> Double? in
+            guard let spd = pt.speed, let hr = pt.hr, hr > 0 else { return nil }
+            return spd / hr
+        }
+        let ef2List = half2.compactMap { pt -> Double? in
+            guard let spd = pt.speed, let hr = pt.hr, hr > 0 else { return nil }
+            return spd / hr
+        }
+        guard !ef1List.isEmpty, !ef2List.isEmpty else { return nil }
+
+        let avgEf1 = ef1List.reduce(0.0, +) / Double(ef1List.count)
+        let avgEf2 = ef2List.reduce(0.0, +) / Double(ef2List.count)
+        guard avgEf1 > 0 else { return nil }
+
+        let decoupling = ((avgEf1 - avgEf2) / avgEf1) * 100.0
+
+        let paces = valid.compactMap(\.pace)
+        let meanPace = paces.reduce(0.0, +) / Double(paces.count)
+        let variance = paces.map { pow($0 - meanPace, 2) }.reduce(0.0, +) / Double(paces.count)
+        let stdDev = sqrt(variance)
+        let cv = (stdDev / meanPace) * 100.0
+
+        let cadences = valid.compactMap(\.cadence).filter { $0 >= 120 }
+        let stability: Double
+        if !cadences.isEmpty {
+            let meanCad = cadences.reduce(0.0, +) / Double(cadences.count)
+            let inRange = cadences.filter { abs($0 - meanCad) <= 3.0 }.count
+            stability = (Double(inRange) / Double(cadences.count)) * 100.0
+        } else {
+            stability = 0.0
+        }
+
+        let h1Paces = half1.compactMap(\.pace)
+        let h1HRs = half1.compactMap(\.hr)
+        let h2Paces = half2.compactMap(\.pace)
+        let h2HRs = half2.compactMap(\.hr)
+
+        let avgH1Pace = h1Paces.reduce(0.0, +) / Double(max(1, h1Paces.count))
+        let avgH1HR = h1HRs.reduce(0.0, +) / Double(max(1, h1HRs.count))
+        let avgH2Pace = h2Paces.reduce(0.0, +) / Double(max(1, h2Paces.count))
+        let avgH2HR = h2HRs.reduce(0.0, +) / Double(max(1, h2HRs.count))
+
+        return SportsScienceAnalysis(
+            decouplingPercent: decoupling,
+            paceCV: cv,
+            cadenceStability: stability,
+            half1PaceSec: avgH1Pace,
+            half1HR: avgH1HR,
+            half2PaceSec: avgH2Pace,
+            half2HR: avgH2HR
+        )
+    }
+
+    @ViewBuilder
+    private func sportsScienceDiagnosticsCard(points: [TelemetryPoint]) -> some View {
+        if let analysis = computeSportsScience(points: points) {
+            let isJa = appState.prefs.language == .ja
+
+            KazeCard {
+                HStack {
+                    KazeSectionHeader(
+                        jpTag: "SCIENCE",
+                        title: isJa ? "運動生理学インテリジェント診断" : "运动生理学智能诊断",
+                        subtitle: isJa ? "有酸素デカップリング・ペース制御・ピッチ安定性" : "有氧脱钩率(Pa:HR)·配速巡航变异·步频专注度"
+                    )
+                    Spacer()
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(KazeTheme.indigo)
+                            .frame(width: 6, height: 6)
+                        Text(isJa ? "20k時系列サンプリング解算" : "20k时序全量解算")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(KazeTheme.indigo)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(KazeTheme.indigo.opacity(0.1))
+                    .clipShape(Capsule())
+                }
+
+                Text(isJa ? "前半と後半の有酸素出力効率(EF)を対比し、心血管ドリフトと巡航リズム制御を客観的に定量化。" : "对比前半程与后半程有氧输出效率(EF)，客观量化心血管漂移、匀速巡航控制力与步频神经动力学输出。")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 2)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        decouplingBox(analysis: analysis, isJa: isJa).frame(maxWidth: .infinity)
+                        paceCVBox(analysis: analysis, isJa: isJa).frame(maxWidth: .infinity)
+                        cadenceStabilityBox(analysis: analysis, isJa: isJa).frame(maxWidth: .infinity)
+                    }
+                    VStack(spacing: 12) {
+                        decouplingBox(analysis: analysis, isJa: isJa)
+                        paceCVBox(analysis: analysis, isJa: isJa)
+                        cadenceStabilityBox(analysis: analysis, isJa: isJa)
+                    }
+                }
+            }
+        }
+    }
+
+    private func decouplingBox(analysis: SportsScienceAnalysis, isJa: Bool) -> some View {
+        let dec = analysis.decouplingPercent
+        let decStr = String(format: "%@%.1f%%", dec > 0 ? "+" : "", dec)
+        let tone: Color
+        let statusTitle: String
+        let descText: String
+
+        if dec < 0.0 {
+            tone = KazeTheme.vermilion
+            statusTitle = isJa ? "負のデカップリング (後半効率向上)" : "负脱钩 (后半程效率提升)"
+            descText = isJa ? "後半の出力効率が前半を上回り、良好なネガティブスプリットを実現。" : "后半程单位心率输出速度更高，呈现优秀负分割（Negative Split）或充分热身。"
+        } else if dec <= 3.5 {
+            tone = KazeTheme.sage
+            statusTitle = isJa ? "極めて良好な有酸素安定性 (<3.5%)" : "极佳有氧稳态 (心血管零漂移)"
+            descText = isJa ? "心拍とペース比率がほぼ一定。線粒体と心血管の有酸素基礎が極めて強固。" : "后半程心率与配速比值近乎恒定，有氧心血管与线粒体耐力基础扎实。"
+        } else if dec <= 5.0 {
+            tone = KazeTheme.indigo
+            statusTitle = isJa ? "良好な有酸素持久力 (3.5%~5%)" : "良好有氧稳态 (轻度生理漂移)"
+            descText = isJa ? "生理学許容範囲内(5%)の自然ドリフト。エネルギー代謝制御は良好。" : "心血管系统漂移在 5% 黄金生理红线以内，配速与能量代谢控制良好。"
+        } else {
+            tone = KazeTheme.amber
+            statusTitle = isJa ? "顕著な有酸素デカップリング (>5%)" : "显著有氧脱钩 (漂移 > 5%)"
+            descText = isJa ? "後半の単位心拍あたり出力が低下。脱水・体温上昇または持久力低下に注意。" : "后半程单位心率输出速度下降，提示耐力衰竭、体温上升或排汗脱水。"
+        }
+
+        let h1PaceText = appState.prefs.formatPace(secondsPerKm: analysis.half1PaceSec)
+        let h2PaceText = appState.prefs.formatPace(secondsPerKm: analysis.half2PaceSec)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("🫀")
+                    .font(.system(size: 11))
+                Text(isJa ? "有酸素デカップリング率 (Pa:HR)" : "有氧脱钩率 (Pa:HR Decoupling)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(decStr)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(tone)
+            }
+
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(tone)
+                    .frame(width: 5, height: 5)
+                Text(statusTitle)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(tone)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(tone.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("前半: \(h1PaceText) · \(Int(analysis.half1HR)) bpm")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text("后半: \(h2PaceText) · \(Int(analysis.half2HR)) bpm")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+
+            Text(descText)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineSpacing(1.5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(KazeTheme.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func paceCVBox(analysis: SportsScienceAnalysis, isJa: Bool) -> some View {
+        let cv = analysis.paceCV
+        let cvStr = String(format: "%.1f%%", cv)
+        let tone: Color
+        let statusTitle: String
+        let descText: String
+
+        if cv < 3.0 {
+            tone = KazeTheme.sage
+            statusTitle = isJa ? "メトロノーム級ペース制御 (CV <3%)" : "节拍器级控速 (CV < 3%)"
+            descText = isJa ? "ペースの揺らぎが極めて少なく、巡航リズムの維持能力が卓越。" : "全程配速波动极微，展现出卓越的匀速巡航控制与体能分配纪律。"
+        } else if cv <= 6.0 {
+            tone = KazeTheme.indigo
+            statusTitle = isJa ? "安定したペース配分 (3%~6%)" : "平稳节奏把控 (CV 3%~6%)"
+            descText = isJa ? "安定した巡航帯を維持し、起伏や気象に柔軟に適応。" : "配速维持在稳定波段，兼顾微幅起伏地形与体能平稳输出。"
+        } else {
+            tone = KazeTheme.amber
+            statusTitle = isJa ? "ペース変動大 (CV >6%)" : "配速波动起伏 (CV > 6%)"
+            descText = isJa ? "インターバル走、クロスカントリーまたは加速減速が頻発。" : "配速波动明显，通常对应间歇变速跑、越野起伏或后半程撞墙减速。"
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("⚡️")
+                    .font(.system(size: 11))
+                Text(isJa ? "ペース変動係数 (Pace CV)" : "配速巡航变异系数 (Pace CV)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(cvStr)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(tone)
+            }
+
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(tone)
+                    .frame(width: 5, height: 5)
+                Text(statusTitle)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(tone)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(tone.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            Text("σ/μ 配速离散度")
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 2)
+
+            Text(descText)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineSpacing(1.5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(KazeTheme.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func cadenceStabilityBox(analysis: SportsScienceAnalysis, isJa: Bool) -> some View {
+        let stab = analysis.cadenceStability
+        let stabStr = String(format: "%.0f%%", stab)
+        let tone: Color
+        let statusTitle: String
+        let descText: String
+
+        if stab >= 80.0 {
+            tone = KazeTheme.sage
+            statusTitle = isJa ? "極めて高いピッチ安定度 (≥80%)" : "高专注步频稳态 (≥80%)"
+            descText = isJa ? "神経筋の出力連動が強固で、ランニングエコノミーが高い状態。" : "中枢神经对步频记忆稳固，动力链输出连贯协调，跑步经济性极高。"
+        } else {
+            tone = KazeTheme.indigo
+            statusTitle = isJa ? "動的ピッチ適応制御" : "动态步频调节 (<80%)"
+            descText = isJa ? "地形やペース変化に応じてピッチを柔軟に微調整。" : "步频随配速、坡度或体能状态发生较多自适应调节。"
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("👟")
+                    .font(.system(size: 11))
+                Text(isJa ? "ピッチ安定度指数" : "步频专注度指数 (Cadence Index)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(stabStr)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(tone)
+            }
+
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(tone)
+                    .frame(width: 5, height: 5)
+                Text(statusTitle)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(tone)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(tone.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            Text("±3 spm 黄金窗口驻留率")
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 2)
+
+            Text(descText)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineSpacing(1.5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(KazeTheme.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func hrZonesCard(zones: [ActivityHRZoneBucket]) -> some View {
