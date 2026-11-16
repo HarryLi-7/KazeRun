@@ -143,6 +143,12 @@ final class UserPreferences {
     var mapGCJ02Calibration: Bool = true { didSet { save() } }
     var mapProvider: MapProvider = .auto { didSet { save() } }
 
+    // AI & DeepSeek Preferences
+    var deepseekApiKey: String = "" { didSet { save() } }
+    var deepseekBaseUrl: String = "https://api.deepseek.com" { didSet { save() } }
+    var deepseekModel: String = "deepseek-chat" { didSet { save() } }
+    var deepseekDiscoveredModels: [String] = ["deepseek-chat", "deepseek-reasoner"] { didSet { save() } }
+
     private let defaults = UserDefaults.standard
     private let key = "KazeRun_UserPreferences"
 
@@ -157,6 +163,10 @@ final class UserPreferences {
             self.appearance = saved.appearance
             self.mapGCJ02Calibration = saved.mapGCJ02Calibration
             self.mapProvider = saved.mapProvider ?? .auto
+            self.deepseekApiKey = saved.deepseekApiKey ?? ""
+            self.deepseekBaseUrl = saved.deepseekBaseUrl ?? "https://api.deepseek.com"
+            self.deepseekModel = saved.deepseekModel ?? "deepseek-chat"
+            self.deepseekDiscoveredModels = saved.deepseekDiscoveredModels ?? ["deepseek-chat", "deepseek-reasoner"]
         }
     }
 
@@ -169,6 +179,10 @@ final class UserPreferences {
         let appearance: AppAppearance
         let mapGCJ02Calibration: Bool
         let mapProvider: MapProvider?
+        let deepseekApiKey: String?
+        let deepseekBaseUrl: String?
+        let deepseekModel: String?
+        let deepseekDiscoveredModels: [String]?
     }
 
     private func save() {
@@ -180,7 +194,11 @@ final class UserPreferences {
             language: language,
             appearance: appearance,
             mapGCJ02Calibration: mapGCJ02Calibration,
-            mapProvider: mapProvider
+            mapProvider: mapProvider,
+            deepseekApiKey: deepseekApiKey,
+            deepseekBaseUrl: deepseekBaseUrl,
+            deepseekModel: deepseekModel,
+            deepseekDiscoveredModels: deepseekDiscoveredModels
         )
         if let data = try? JSONEncoder().encode(saved) {
             defaults.set(data, forKey: key)
