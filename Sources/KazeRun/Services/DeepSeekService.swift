@@ -1,11 +1,13 @@
 import Foundation
 
-enum DeepSeekConnectionState: Equatable {
+enum AIConnectionState: Equatable {
     case idle
     case testing
     case success(latencyMs: Int, models: [String])
     case failure(error: String)
 }
+
+typealias DeepSeekConnectionState = AIConnectionState
 
 final class DeepSeekService {
     static let shared = DeepSeekService()

@@ -4,8 +4,10 @@ struct SettingsSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    @State private var isShowingApiKey: Bool = false
-    @State private var connectionState: DeepSeekConnectionState = .idle
+    @State private var isShowingDeepSeekApiKey: Bool = false
+    @State private var isShowingGeminiApiKey: Bool = false
+    @State private var deepseekConnectionState: AIConnectionState = .idle
+    @State private var geminiConnectionState: AIConnectionState = .idle
 
     var body: some View {
         @Bindable var prefs = appState.prefs
@@ -98,155 +100,142 @@ struct SettingsSheet: View {
                         .font(.system(size: 11, weight: .bold))
                 }
 
-                // Section 4: AI & DeepSeek
+                // Section 4: AI Engine & Models
                 Section {
-                    HStack {
-                        Text(prefs.language == .ja ? "AIサービス源" : "AI 服务商")
-                        Spacer()
-                        Text("DeepSeek (深度求索)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    // API Key with Show/Hide toggle
-                    LabeledContent("API Key") {
-                        HStack(spacing: 8) {
-                            if isShowingApiKey {
-                                TextField("sk-...", text: $prefs.deepseekApiKey)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 11.5, design: .monospaced))
-                            } else {
-                                SecureField("sk-...", text: $prefs.deepseekApiKey)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 11.5, design: .monospaced))
-                            }
-
-                            Button {
-                                isShowingApiKey.toggle()
-                            } label: {
-                                Image(systemName: isShowingApiKey ? "eye.slash" : "eye")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 18)
-                            }
-                            .buttonStyle(.plain)
-                            .help(isShowingApiKey ? (prefs.language == .ja ? "非表示" : "隐藏密钥") : (prefs.language == .ja ? "表示" : "显示明文"))
+                    Picker(prefs.language == .ja ? "AIサービス源" : "AI 服务商", selection: $prefs.aiProvider) {
+                        ForEach(AIProvider.allCases) { provider in
+                            Text(provider.label(lang: prefs.language)).tag(provider)
                         }
                     }
+                    .pickerStyle(.segmented)
 
-                    LabeledContent(prefs.language == .ja ? "APIエンドポイント (Base URL)" : "接入点 (Base URL)") {
-                        TextField("", text: $prefs.deepseekBaseUrl)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11.5, design: .monospaced))
-                    }
-
-                    LabeledContent(prefs.language == .ja ? "モデル選択" : "默认模型") {
-                        HStack(spacing: 8) {
-                            Picker("", selection: $prefs.deepseekModel) {
-                                ForEach(prefs.deepseekDiscoveredModels, id: \.self) { m in
-                                    Text(formatModelLabel(m)).tag(m)
+                    if prefs.aiProvider == .deepseek {
+                        // DeepSeek Config
+                        LabeledContent("DeepSeek API Key") {
+                            HStack(spacing: 8) {
+                                if isShowingDeepSeekApiKey {
+                                    TextField("sk-...", text: $prefs.deepseekApiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                } else {
+                                    SecureField("sk-...", text: $prefs.deepseekApiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
                                 }
-                            }
-                            .labelsHidden()
 
-                            Button {
-                                Task {
-                                    connectionState = .testing
-                                    let res = await DeepSeekService.shared.testConnection(
-                                        apiKey: prefs.deepseekApiKey,
-                                        baseUrl: prefs.deepseekBaseUrl,
-                                        model: prefs.deepseekModel
-                                    )
-                                    connectionState = res
-                                    if case .success(_, let models) = res, !models.isEmpty {
-                                        prefs.deepseekDiscoveredModels = models
-                                        if !models.contains(prefs.deepseekModel) {
-                                            prefs.deepseekModel = models.first ?? "deepseek-chat"
-                                        }
-                                    }
+                                Button {
+                                    isShowingDeepSeekApiKey.toggle()
+                                } label: {
+                                    Image(systemName: isShowingDeepSeekApiKey ? "eye.slash" : "eye")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 18)
                                 }
-                            } label: {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
+                                .buttonStyle(.plain)
+                                .help(isShowingDeepSeekApiKey ? (prefs.language == .ja ? "非表示" : "隐藏密钥") : (prefs.language == .ja ? "表示" : "显示明文"))
                             }
-                            .buttonStyle(.plain)
-                            .disabled(prefs.deepseekApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || connectionState == .testing)
-                            .help(prefs.language == .ja ? "モデルリストを再取得" : "向服务器刷新拉取支持的模型列表")
                         }
-                    }
 
-                    // Test Connection Row
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Button {
-                                Task {
-                                    connectionState = .testing
-                                    let res = await DeepSeekService.shared.testConnection(
-                                        apiKey: prefs.deepseekApiKey,
-                                        baseUrl: prefs.deepseekBaseUrl,
-                                        model: prefs.deepseekModel
-                                    )
-                                    connectionState = res
-                                    if case .success(_, let models) = res, !models.isEmpty {
-                                        prefs.deepseekDiscoveredModels = models
-                                        if !models.contains(prefs.deepseekModel) {
-                                            prefs.deepseekModel = models.first ?? "deepseek-chat"
-                                        }
+                        LabeledContent(prefs.language == .ja ? "APIエンドポイント (Base URL)" : "接入点 (Base URL)") {
+                            TextField("", text: $prefs.deepseekBaseUrl)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                        }
+
+                        LabeledContent(prefs.language == .ja ? "モデル選択" : "默认模型") {
+                            HStack(spacing: 8) {
+                                Picker("", selection: $prefs.deepseekModel) {
+                                    ForEach(prefs.deepseekDiscoveredModels, id: \.self) { m in
+                                        Text(formatDeepSeekModelLabel(m)).tag(m)
                                     }
                                 }
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "bolt.horizontal.circle.fill")
-                                    Text(connectionState == .testing ? (prefs.language == .ja ? "検証中..." : "正在探活...") : (prefs.language == .ja ? "接続テスト" : "测试连接"))
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(prefs.deepseekApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || connectionState == .testing)
+                                .labelsHidden()
 
-                            Spacer()
-
-                            switch connectionState {
-                            case .idle:
-                                Text(prefs.language == .ja ? "Key入力後にテスト可能" : "输入 Key 后可一键验证可用性")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                            case .testing:
-                                HStack(spacing: 6) {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                    Text(prefs.language == .ja ? "DeepSeek に接続中..." : "正在向 DeepSeek 发起探活...")
+                                Button {
+                                    triggerDeepSeekTest(prefs: prefs)
+                                } label: {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
                                         .font(.system(size: 11))
                                         .foregroundStyle(.secondary)
                                 }
-                            case .success(let latency, let models):
-                                HStack(spacing: 5) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(KazeTheme.sage)
-                                    Text(prefs.language == .ja
-                                        ? "接続成功 (\(latency)ms · \(models.count)モデル確認)"
-                                        : "连接成功 (延时 \(latency)ms\(models.isEmpty ? "" : " · 已探明支持: \(models.joined(separator: ", "))"))")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(KazeTheme.sage)
-                                        .lineLimit(2)
-                                }
-                            case .failure(let error):
-                                HStack(spacing: 5) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(KazeTheme.vermilion)
-                                    Text(error)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(KazeTheme.vermilion)
-                                        .lineLimit(2)
-                                }
+                                .buttonStyle(.plain)
+                                .disabled(prefs.deepseekApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || deepseekConnectionState == .testing)
+                                .help(prefs.language == .ja ? "モデルリストを再取得" : "向服务器刷新拉取支持的模型列表")
                             }
                         }
 
-                        Text(prefs.language == .ja ? "公式 0-Token 規格で検証するため、API残高は消費されません。モデル一覧も自動更新されます。" : "探活采用官方 0-Token 标准通道，测试本身不扣除您的 API 额度，并会自动拉取云端支持的模型列表。密钥仅保存在本地设备。")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.secondary)
+                        aiTestRow(
+                            provider: "DeepSeek",
+                            apiKey: prefs.deepseekApiKey,
+                            state: deepseekConnectionState,
+                            onTest: { triggerDeepSeekTest(prefs: prefs) }
+                        )
+                    } else {
+                        // Gemini Config
+                        LabeledContent("Gemini API Key") {
+                            HStack(spacing: 8) {
+                                if isShowingGeminiApiKey {
+                                    TextField("AIzaSy...", text: $prefs.geminiApiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                } else {
+                                    SecureField("AIzaSy...", text: $prefs.geminiApiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                }
+
+                                Button {
+                                    isShowingGeminiApiKey.toggle()
+                                } label: {
+                                    Image(systemName: isShowingGeminiApiKey ? "eye.slash" : "eye")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 18)
+                                }
+                                .buttonStyle(.plain)
+                                .help(isShowingGeminiApiKey ? (prefs.language == .ja ? "非表示" : "隐藏密钥") : (prefs.language == .ja ? "表示" : "显示明文"))
+                            }
+                        }
+
+                        LabeledContent(prefs.language == .ja ? "APIエンドポイント (Base URL)" : "接入点 (Base URL)") {
+                            TextField("", text: $prefs.geminiBaseUrl)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                        }
+
+                        LabeledContent(prefs.language == .ja ? "モデル選択" : "默认模型") {
+                            HStack(spacing: 8) {
+                                Picker("", selection: $prefs.geminiModel) {
+                                    ForEach(prefs.geminiDiscoveredModels, id: \.self) { m in
+                                        Text(formatGeminiModelLabel(m)).tag(m)
+                                    }
+                                }
+                                .labelsHidden()
+
+                                Button {
+                                    triggerGeminiTest(prefs: prefs)
+                                } label: {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(prefs.geminiApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || geminiConnectionState == .testing)
+                                .help(prefs.language == .ja ? "モデルリストを再取得" : "向 Google 服务器刷新拉取支持的模型列表")
+                            }
+                        }
+
+                        aiTestRow(
+                            provider: "Gemini",
+                            apiKey: prefs.geminiApiKey,
+                            state: geminiConnectionState,
+                            onTest: { triggerGeminiTest(prefs: prefs) }
+                        )
                     }
-                    .padding(.vertical, 4)
+
+                    Text(prefs.language == .ja ? "公式 0-Token 規格で検証するため、API残高は消費されません。モデル一覧も自動同期されます。キーはローカルにのみ保存されます。" : "探活采用各厂商官方 0-Token 标准通道，测试本身不扣除您的 API 额度，并会自动拉取云端支持的模型列表。密钥仅保存在本地设备。")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
                 } header: {
                     HStack(spacing: 5) {
                         Image(systemName: "brain.head.profile")
@@ -272,15 +261,120 @@ struct SettingsSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 560, height: 620)
+        .frame(width: 580, height: 640)
     }
 
-    private func formatModelLabel(_ id: String) -> String {
+    private func triggerDeepSeekTest(prefs: UserPreferences) {
+        Task {
+            deepseekConnectionState = .testing
+            let res = await DeepSeekService.shared.testConnection(
+                apiKey: prefs.deepseekApiKey,
+                baseUrl: prefs.deepseekBaseUrl,
+                model: prefs.deepseekModel
+            )
+            deepseekConnectionState = res
+            if case .success(_, let models) = res, !models.isEmpty {
+                prefs.deepseekDiscoveredModels = models
+                if !models.contains(prefs.deepseekModel) {
+                    prefs.deepseekModel = models.first ?? "deepseek-chat"
+                }
+            }
+        }
+    }
+
+    private func triggerGeminiTest(prefs: UserPreferences) {
+        Task {
+            geminiConnectionState = .testing
+            let res = await GeminiService.shared.testConnection(
+                apiKey: prefs.geminiApiKey,
+                baseUrl: prefs.geminiBaseUrl,
+                model: prefs.geminiModel
+            )
+            geminiConnectionState = res
+            if case .success(_, let models) = res, !models.isEmpty {
+                prefs.geminiDiscoveredModels = models
+                if !models.contains(prefs.geminiModel) {
+                    prefs.geminiModel = models.first ?? "gemini-2.5-flash"
+                }
+            }
+        }
+    }
+
+    private func aiTestRow(provider: String, apiKey: String, state: AIConnectionState, onTest: @escaping () -> Void) -> some View {
+        HStack {
+            Button {
+                onTest()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "bolt.horizontal.circle.fill")
+                    Text(state == .testing ? (appState.prefs.language == .ja ? "検証中..." : "正在探活...") : (appState.prefs.language == .ja ? "接続テスト" : "测试连接"))
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || state == .testing)
+
+            Spacer()
+
+            switch state {
+            case .idle:
+                Text(appState.prefs.language == .ja ? "Key入力後にテスト可能" : "输入 Key 后可一键验证可用性")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            case .testing:
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(appState.prefs.language == .ja ? "\(provider) に接続中..." : "正在向 \(provider) 发起探活...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            case .success(let latency, let models):
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(KazeTheme.sage)
+                    Text(appState.prefs.language == .ja
+                        ? "接続成功 (\(latency)ms · \(models.count)モデル確認)"
+                        : "连接成功 (延时 \(latency)ms\(models.isEmpty ? "" : " · 支持: \(models.prefix(2).joined(separator: ", "))\(models.count > 2 ? " 等 \(models.count) 款模型" : "")"))")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(KazeTheme.sage)
+                        .lineLimit(2)
+                }
+            case .failure(let error):
+                HStack(spacing: 5) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(KazeTheme.vermilion)
+                    Text(error)
+                        .font(.system(size: 11))
+                        .foregroundStyle(KazeTheme.vermilion)
+                        .lineLimit(2)
+                }
+            }
+        }
+    }
+
+    private func formatDeepSeekModelLabel(_ id: String) -> String {
         switch id {
         case "deepseek-chat":
             return "deepseek-chat (V3 · 默认推荐)"
         case "deepseek-reasoner":
             return "deepseek-reasoner (R1 · 深度推理)"
+        default:
+            return id
+        }
+    }
+
+    private func formatGeminiModelLabel(_ id: String) -> String {
+        switch id {
+        case "gemini-2.5-flash":
+            return "gemini-2.5-flash (极速 · 默认推荐)"
+        case "gemini-2.5-pro":
+            return "gemini-2.5-pro (深度推理与长文本)"
+        case "gemini-2.0-flash":
+            return "gemini-2.0-flash (经典极速)"
+        case "gemini-1.5-pro":
+            return "gemini-1.5-pro"
+        case "gemini-1.5-flash":
+            return "gemini-1.5-flash"
         default:
             return id
         }

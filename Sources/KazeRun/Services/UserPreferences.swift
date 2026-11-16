@@ -84,6 +84,20 @@ enum AppLanguage: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum AIProvider: String, CaseIterable, Identifiable, Codable {
+    case deepseek = "deepseek"
+    case gemini = "gemini"
+
+    var id: String { rawValue }
+
+    func label(lang: AppLanguage) -> String {
+        switch self {
+        case .deepseek: return "DeepSeek (深度求索)"
+        case .gemini: return "Google Gemini"
+        }
+    }
+}
+
 enum MapProvider: String, CaseIterable, Identifiable, Codable {
     case auto = "auto"
     case amap = "amap"
@@ -143,11 +157,18 @@ final class UserPreferences {
     var mapGCJ02Calibration: Bool = true { didSet { save() } }
     var mapProvider: MapProvider = .auto { didSet { save() } }
 
-    // AI & DeepSeek Preferences
+    // AI & LLM Preferences
+    var aiProvider: AIProvider = .deepseek { didSet { save() } }
+
     var deepseekApiKey: String = "" { didSet { save() } }
     var deepseekBaseUrl: String = "https://api.deepseek.com" { didSet { save() } }
     var deepseekModel: String = "deepseek-chat" { didSet { save() } }
     var deepseekDiscoveredModels: [String] = ["deepseek-chat", "deepseek-reasoner"] { didSet { save() } }
+
+    var geminiApiKey: String = "" { didSet { save() } }
+    var geminiBaseUrl: String = "https://generativelanguage.googleapis.com" { didSet { save() } }
+    var geminiModel: String = "gemini-2.5-flash" { didSet { save() } }
+    var geminiDiscoveredModels: [String] = ["gemini-2.5-flash", "gemini-2.5-pro"] { didSet { save() } }
 
     private let defaults = UserDefaults.standard
     private let key = "KazeRun_UserPreferences"
@@ -163,10 +184,15 @@ final class UserPreferences {
             self.appearance = saved.appearance
             self.mapGCJ02Calibration = saved.mapGCJ02Calibration
             self.mapProvider = saved.mapProvider ?? .auto
+            self.aiProvider = saved.aiProvider ?? .deepseek
             self.deepseekApiKey = saved.deepseekApiKey ?? ""
             self.deepseekBaseUrl = saved.deepseekBaseUrl ?? "https://api.deepseek.com"
             self.deepseekModel = saved.deepseekModel ?? "deepseek-chat"
             self.deepseekDiscoveredModels = saved.deepseekDiscoveredModels ?? ["deepseek-chat", "deepseek-reasoner"]
+            self.geminiApiKey = saved.geminiApiKey ?? ""
+            self.geminiBaseUrl = saved.geminiBaseUrl ?? "https://generativelanguage.googleapis.com"
+            self.geminiModel = saved.geminiModel ?? "gemini-2.5-flash"
+            self.geminiDiscoveredModels = saved.geminiDiscoveredModels ?? ["gemini-2.5-flash", "gemini-2.5-pro"]
         }
     }
 
@@ -179,10 +205,15 @@ final class UserPreferences {
         let appearance: AppAppearance
         let mapGCJ02Calibration: Bool
         let mapProvider: MapProvider?
+        let aiProvider: AIProvider?
         let deepseekApiKey: String?
         let deepseekBaseUrl: String?
         let deepseekModel: String?
         let deepseekDiscoveredModels: [String]?
+        let geminiApiKey: String?
+        let geminiBaseUrl: String?
+        let geminiModel: String?
+        let geminiDiscoveredModels: [String]?
     }
 
     private func save() {
@@ -195,10 +226,15 @@ final class UserPreferences {
             appearance: appearance,
             mapGCJ02Calibration: mapGCJ02Calibration,
             mapProvider: mapProvider,
+            aiProvider: aiProvider,
             deepseekApiKey: deepseekApiKey,
             deepseekBaseUrl: deepseekBaseUrl,
             deepseekModel: deepseekModel,
-            deepseekDiscoveredModels: deepseekDiscoveredModels
+            deepseekDiscoveredModels: deepseekDiscoveredModels,
+            geminiApiKey: geminiApiKey,
+            geminiBaseUrl: geminiBaseUrl,
+            geminiModel: geminiModel,
+            geminiDiscoveredModels: geminiDiscoveredModels
         )
         if let data = try? JSONEncoder().encode(saved) {
             defaults.set(data, forKey: key)
