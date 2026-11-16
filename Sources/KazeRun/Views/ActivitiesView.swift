@@ -164,7 +164,10 @@ struct ActivitiesView: View {
                         }
                     } else if let bundle = appState.currentBundle, bundle.activityId == selectedId {
                         if !bundle.polyline.isEmpty {
-                            routeMapCard(polyline: bundle.polyline)
+                            routeMapCard(
+                                polyline: bundle.polyline,
+                                hoveredCoordinate: computeHoveredCoordinate(bundle: bundle)
+                            )
                         }
                         if !bundle.telemetryPoints.isEmpty {
                             telemetryChartCard(points: bundle.telemetryPoints)
@@ -276,7 +279,27 @@ struct ActivitiesView: View {
         }
     }
 
-    private func routeMapCard(polyline: [[Double]]) -> some View {
+    private func computeHoveredCoordinate(bundle: ActivityDetailBundle) -> CLLocationCoordinate2D? {
+        guard let hoveredTime else { return nil }
+        // 1. Direct match with telemetry point that has GPS fix
+        if let pt = bundle.telemetryPoints.min(by: { abs($0.t - hoveredTime) < abs($1.t - hoveredTime) }),
+           let lat = pt.lat, let lon = pt.lon {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        // 2. Proportional interpolation along polyline
+        guard !bundle.polyline.isEmpty else { return nil }
+        let maxT = bundle.telemetryPoints.last?.t ?? bundle.summary?.summaryDTO?.duration ?? 1.0
+        guard maxT > 0 else { return nil }
+        let ratio = max(0.0, min(1.0, hoveredTime / maxT))
+        let idx = Int(ratio * Double(bundle.polyline.count - 1))
+        let pair = bundle.polyline[idx]
+        if pair.count >= 2 {
+            return CLLocationCoordinate2D(latitude: pair[0], longitude: pair[1])
+        }
+        return nil
+    }
+
+    private func routeMapCard(polyline: [[Double]], hoveredCoordinate: CLLocationCoordinate2D? = nil) -> some View {
         let sample = polyline.first ?? [0.0, 0.0]
         let isOverseas = CoordinateTransform.isOutOfChina(lat: sample[0], lon: sample[1])
         let mapName: String = {
@@ -311,6 +334,7 @@ struct ActivitiesView: View {
 
             KazeMapView(
                 polyline: polyline,
+                hoveredCoordinate: hoveredCoordinate,
                 provider: appState.prefs.mapProvider,
                 calibrateGcj02: appState.prefs.mapGCJ02Calibration
             )
