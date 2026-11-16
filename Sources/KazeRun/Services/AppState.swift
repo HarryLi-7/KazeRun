@@ -281,8 +281,13 @@ final class AppState {
                 params: ["activity_id": activityId]
             )
             let files = res["extracted_files"] as? [String] ?? []
-            let msg = files.first ?? (res["zip_path"] as? String) ?? "已保存至 Downloads"
+            let targetPath = files.first ?? (res["zip_path"] as? String)
+            let msg = targetPath ?? "已保存至 Downloads"
             setBanner("原始 FIT 已导出：\(msg)", isError: false)
+            if let targetPath {
+                let fileURL = URL(fileURLWithPath: targetPath)
+                NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            }
             return msg
         } catch {
             setBanner("导出 FIT 失败：\(error.localizedDescription)", isError: true)
