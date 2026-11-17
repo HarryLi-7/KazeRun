@@ -108,6 +108,65 @@ final class DeepSeekService {
         }
     }
 
+    func generateDebrief(prompt: String, systemPrompt: String, apiKey: String, baseUrl: String, model: String) async throws -> String {
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty else {
+            throw NSError(domain: "DeepSeekService", code: 401, userInfo: [NSLocalizedDescriptionKey: "请先在设置中填写 DeepSeek API Key"])
+        }
+
+        var cleanBaseUrl = baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanBaseUrl.hasSuffix("/") {
+            cleanBaseUrl = String(cleanBaseUrl.dropLast())
+        }
+        if cleanBaseUrl.isEmpty {
+            cleanBaseUrl = "https://api.deepseek.com"
+        }
+
+        guard let chatUrl = URL(string: "\(cleanBaseUrl)/chat/completions") else {
+            throw NSError(domain: "DeepSeekService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Chat API URL 格式无效"])
+        }
+
+        var request = URLRequest(url: chatUrl)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if #available(macOS 11.3, *) {
+            request.assumesHTTP3Capable = false
+        }
+        request.timeoutInterval = 30.0
+
+        let payload: [String: Any] = [
+            "model": model.isEmpty ? "deepseek-flash" : model,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": prompt]
+            ],
+            "temperature": 0.3,
+            "max_tokens": 1200
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(domain: "DeepSeekService", code: -1, userInfo: [NSLocalizedDescriptionKey: "非标准 HTTP 响应"])
+        }
+
+        if http.statusCode == 200 {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let choices = json["choices"] as? [[String: Any]],
+               let firstChoice = choices.first,
+               let message = firstChoice["message"] as? [String: Any],
+               let text = message["content"] as? String {
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            throw NSError(domain: "DeepSeekService", code: 500, userInfo: [NSLocalizedDescriptionKey: "无法解析模型返回的数据结构"])
+        } else {
+            let errText = parseErrorMessage(data: data) ?? "HTTP \(http.statusCode)"
+            throw NSError(domain: "DeepSeekService", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "AI 调用失败 (\(http.statusCode)): \(errText)"])
+        }
+    }
+
     private func parseErrorMessage(data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return String(data: data, encoding: .utf8)?.prefix(100).description

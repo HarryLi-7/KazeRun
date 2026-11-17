@@ -328,16 +328,16 @@ struct SettingsSheet: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
-            case .success(let latency, let models):
+            case .success(let latency, _):
                 HStack(spacing: 5) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(KazeTheme.sage)
                     Text(appState.prefs.language == .ja
-                        ? "接続成功 (\(latency)ms · \(models.count)モデル確認)"
-                        : "连接成功 (延时 \(latency)ms\(models.isEmpty ? "" : " · 支持: \(models.prefix(2).joined(separator: ", "))\(models.count > 2 ? " 等 \(models.count) 款模型" : "")"))")
+                        ? "接続成功 (遅延 \(latency)ms)"
+                        : "连接成功 (延时 \(latency)ms)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(KazeTheme.sage)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
             case .failure(let error):
                 HStack(spacing: 5) {

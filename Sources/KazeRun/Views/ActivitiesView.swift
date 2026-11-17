@@ -181,6 +181,7 @@ struct ActivitiesView: View {
                         if !bundle.telemetryPoints.isEmpty {
                             telemetryChartCard(points: bundle.telemetryPoints)
                             sportsScienceDiagnosticsCard(points: bundle.telemetryPoints)
+                            aiDebriefCard(activity: item, bundle: bundle, analysis: computeSportsScience(points: bundle.telemetryPoints))
                         }
                         HStack(alignment: .top, spacing: 14) {
                             hrZonesCard(zones: bundle.hrZones ?? [])
@@ -246,6 +247,29 @@ struct ActivitiesView: View {
                         Label(appState.prefs.language == .ja ? "FIT生データ出力" : "导出原始 FIT", systemImage: "arrow.down.doc")
                     }
                     .buttonStyle(.bordered)
+
+                    Button {
+                        triggerAIDebrief(item: item, bundle: bundle)
+                    } label: {
+                        if appState.isGeneratingAIDebrief {
+                            HStack(spacing: 5) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(appState.prefs.language == .ja ? "分析中..." : "AI 复盘中...")
+                            }
+                        } else {
+                            Label(
+                                appState.aiDebriefCache[item.id] != nil
+                                    ? (appState.prefs.language == .ja ? "AI コーチ再分析" : "AI 重新复盘")
+                                    : (appState.prefs.language == .ja ? "AI コーチ分析" : "AI 跑步复盘"),
+                                systemImage: "sparkles"
+                            )
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(KazeTheme.vermilion)
+                    .disabled(appState.isGeneratingAIDebrief)
+                    .help(appState.prefs.language == .ja ? "現在のテレメトリと有酸素デカップリングに基づくAIコーチレビュー" : "基于本场 20k 采样、有氧脱钩与步频稳态生成教练复盘")
 
                     Button {
                         Task { await appState.selectActivity(id: item.id, forceRefresh: true) }
@@ -1133,6 +1157,200 @@ struct ActivitiesView: View {
                   }
                 }
             }
+        }
+    }
+
+    // MARK: - AI Debrief Card
+
+    @ViewBuilder
+    private func aiDebriefCard(activity: ActivityItem, bundle: ActivityDetailBundle, analysis: SportsScienceAnalysis?) -> some View {
+        let isJa = appState.prefs.language == .ja
+        let providerName = appState.prefs.aiProvider.rawValue.capitalized
+        let activeModel = appState.prefs.aiProvider == .deepseek ? appState.prefs.deepseekModel : appState.prefs.geminiModel
+
+        KazeCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center) {
+                    KazeSectionHeader(
+                        jpTag: "AI COACH",
+                        title: isJa ? "AI インテリジェントコーチ分析" : "AI 智能教练深度复盘",
+                        subtitle: isJa ? "生理学シグナル · ペース制御 · リカバリー処方" : "运动生理学诊断 · 巡航体能分配 · 恢复与下一练"
+                    )
+                    Spacer()
+
+                    HStack(spacing: 8) {
+                        Text("\(providerName) · \(activeModel)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2.5)
+                            .background(Color.secondary.opacity(0.1))
+                            .clipShape(Capsule())
+
+                        if appState.aiDebriefCache[activity.id] != nil && !appState.isGeneratingAIDebrief {
+                            Button {
+                                triggerAIDebrief(item: activity, bundle: bundle)
+                            } label: {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help(isJa ? "再分析を実行" : "重新生成分析")
+                        }
+                    }
+                }
+
+                if appState.isGeneratingAIDebrief {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .controlSize(.regular)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(isJa ? "運動生理学と心拍ドリフトを深層解算中..." : "正在结合 20k 高频采样、心率脱钩与步频专注度深度解算中...")
+                                .font(.system(size: 13, weight: .medium))
+                            Text(isJa ? "\(providerName) モデルがパーソナライズされたレビューを生成しています" : "正在调用 \(providerName) (\(activeModel)) 生成教练级实战指导")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let debrief = appState.aiDebriefCache[activity.id] {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(debrief)
+                            .font(.system(size: 13))
+                            .lineSpacing(5)
+                            .textSelection(.enabled)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(KazeTheme.canvas.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10))
+                            .foregroundStyle(KazeTheme.vermilion)
+                        Text(isJa ? "本レビューは客観的テレメトリに基づく運動生理学ガイダンスです" : "复盘基于当前活动客观生理与环境指标生成 · 仅供运动科学参考")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let err = appState.aiDebriefError {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(KazeTheme.vermilion)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(isJa ? "AI分析に失敗しました" : "AI 复盘生成失败")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(KazeTheme.vermilion)
+                            Text(err)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(isJa ? "再試行" : "重试") {
+                            triggerAIDebrief(item: activity, bundle: bundle)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .padding(12)
+                    .background(KazeTheme.vermilion.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    // Empty callout state
+                    HStack(spacing: 14) {
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 26))
+                            .foregroundStyle(KazeTheme.vermilion.opacity(0.85))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(isJa ? "AI専属ランニングコーチによる詳細レビュー" : "AI 专属运动生理学教练复盘")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text(isJa
+                                ? "本アクティビティのペース変動、有酸素デカップリング(Pa:HR)、ピッチ安定性を分析し、次回メニューとリカバリー計画を提案します。"
+                                : "一键解算本场跑步的巡航离散度、有氧脱钩漂移与动力链连贯性，生成客观专业的节奏复盘与下阶段课表指引。")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            triggerAIDebrief(item: activity, bundle: bundle)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                Text(isJa ? "コーチ分析を生成" : "生成教练复盘")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(KazeTheme.vermilion)
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+        }
+    }
+
+    private func triggerAIDebrief(item: ActivityItem, bundle: ActivityDetailBundle?) {
+        let hasKey = appState.prefs.aiProvider == .deepseek
+            ? !appState.prefs.deepseekApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            : !appState.prefs.geminiApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        if !hasKey {
+            appState.showSettingsSheet = true
+            return
+        }
+
+        let pts = bundle?.telemetryPoints ?? []
+        let analysis = computeSportsScience(points: pts)
+
+        let h1Pace = analysis != nil ? appState.prefs.formatPace(secondsPerKm: analysis!.half1PaceSec) : nil
+        let h2Pace = analysis != nil ? appState.prefs.formatPace(secondsPerKm: analysis!.half2PaceSec) : nil
+
+        var zonesSummary: String? = nil
+        if let zones = bundle?.hrZones, !zones.isEmpty {
+            let total = zones.reduce(0.0) { $0 + ($1.secsInZone ?? 0.0) }
+            if total > 0 {
+                zonesSummary = zones.compactMap { z in
+                    guard let sec = z.secsInZone, let num = z.zoneNumber else { return nil }
+                    let pct = Int((sec / total) * 100)
+                    return "Z\(num): \(pct)%"
+                }.joined(separator: ", ")
+            }
+        }
+
+        var weatherStr: String? = nil
+        if let w = bundle?.weather {
+            var parts: [String] = []
+            if let temp = w.temp { parts.append("\(Int(temp))°C") }
+            if let cond = w.weatherTypeDTO?.desc { parts.append(cond) }
+            if let wind = w.windSpeed { parts.append("风速 \(Int(wind))km/h") }
+            weatherStr = parts.joined(separator: " · ")
+        }
+
+        let shoeStr = bundle?.gear?.first?.title ?? bundle?.gear?.first?.displayName
+
+        Task {
+            await appState.generateAIDebrief(
+                activityId: item.id,
+                name: item.name ?? "跑步活动",
+                type: item.type ?? "running",
+                date: item.startTime ?? item.shortDate,
+                distanceMeters: item.distanceMeters,
+                durationSeconds: item.durationSeconds,
+                avgHr: item.avgHrBpm,
+                maxHr: item.maxHrBpm,
+                decouplingPercent: analysis?.decouplingPercent,
+                paceCV: analysis?.paceCV,
+                cadenceStability: analysis?.cadenceStability,
+                half1Pace: h1Pace,
+                half2Pace: h2Pace,
+                hrZonesSummary: zonesSummary,
+                weather: weatherStr,
+                shoe: shoeStr
+            )
         }
     }
 }

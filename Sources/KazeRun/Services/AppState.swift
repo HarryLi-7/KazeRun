@@ -69,10 +69,15 @@ final class AppState {
     var isLoadingBundle: Bool = false
     var isOperatingWorkout: Bool = false
     var isExportingFIT: Bool = false
+    var isGeneratingAIDebrief: Bool = false
 
-    /// Global unified loading status across all modules (syncing, details, workouts, export)
+    // AI Debrief State Cache
+    var aiDebriefCache: [Int: String] = [:]
+    var aiDebriefError: String? = nil
+
+    /// Global unified loading status across all modules (syncing, details, workouts, export, AI)
     var isAnyLoading: Bool {
-        isSyncingDashboard || isLoadingActivities || isLoadingBundle || isOperatingWorkout || isExportingFIT
+        isSyncingDashboard || isLoadingActivities || isLoadingBundle || isOperatingWorkout || isExportingFIT || isGeneratingAIDebrief
     }
 
     var hasMoreActivities: Bool = true
@@ -394,6 +399,144 @@ final class AppState {
         } catch {
             setBanner("排期失败：\(error.localizedDescription)", isError: true)
         }
+    }
+
+    // MARK: - AI Debrief Generation
+
+    func generateAIDebrief(
+        activityId: Int,
+        name: String,
+        type: String,
+        date: String,
+        distanceMeters: Double?,
+        durationSeconds: Double?,
+        avgHr: Double?,
+        maxHr: Double?,
+        decouplingPercent: Double?,
+        paceCV: Double?,
+        cadenceStability: Double?,
+        half1Pace: String?,
+        half2Pace: String?,
+        hrZonesSummary: String?,
+        weather: String?,
+        shoe: String?
+    ) async {
+        isGeneratingAIDebrief = true
+        aiDebriefError = nil
+
+        let isJa = prefs.language == .ja
+
+        let systemPrompt = isJa
+            ? """
+            あなたは日本の長距離・マラソン専門の運動生理学シニアコーチ（実業団監督）です。
+            ランナーから提供された単一アクティビティの客観的テレメトリデータ（有酸素デカップリング率Pa:HR、ペース変動係数CV、ピッチ安定度、心拍ゾーン）に基づき、
+            無駄のない洗练されたプロフェッショナルなレビューを提供してください。
+
+            【出力フォーマット（必ず以下の3つの見出しで構成し、簡潔に箇条書きで記載）】
+            🏃‍♂️ **ペース配分と巡航リズム**
+            - （前半と後半のペース安定性、ネガティブスプリットまたは減速の要因を客観評価）
+            🫀 **生理的経済性と心拍ドリフト**
+            - （Pa:HR有酸素デカップリング率とピッチ安定性から、心血管スタミナとランニングエコノミーを分析）
+            💡 **リカバリーと次の練習への示唆**
+            - （本走の疲労度に基づく推奨回復時間、次回メニューの具体的なペース・強度アドバイス）
+
+            文字数は250文字程度で、的確かつ実戦的なアドバイスに絞ってください。
+            """
+            : """
+            你是一位专业中长跑与马拉松运动生理学资深主教练。
+            请根据跑者提供的单次跑步客观实测生理数据（有氧脱钩率 Pa:HR、配速变异系数 CV、步频专注度稳态、心率区间分布），给出客观、严谨、一针见血的专业复盘指导。
+
+            【输出格式要求：严格分为以下三个层级，每项 1-2 条精炼要点，总字数 200~280 字】
+            🏃‍♂️ **节奏掌控与体能分配**
+            - （评估前半程与后半程巡航稳定性、均速把控、有无后程掉速或冲刺起伏）
+            🫀 **生理经济性与心率稳态**
+            - （结合 Pa:HR 脱钩率与步频稳态，评估有氧耐力厚度、心血管漂移情况及跑步经济性）
+            💡 **恢复窗口与下一练建议**
+            - （给出客观生理恢复时长，并针对当前表现提出下一次课表建议）
+            """
+
+        var promptLines: [String] = []
+        promptLines.append(isJa ? "【アクティビティ概要】" : "【跑步活动数据】")
+        promptLines.append("- \(isJa ? "名称/種目" : "名称与类型"): \(name) (\(type))")
+        promptLines.append("- \(isJa ? "実施日時" : "日期时间"): \(date)")
+        if let d = distanceMeters, d > 0 {
+            let distKm = String(format: "%.2f km", d / 1000.0)
+            promptLines.append("- \(isJa ? "走行距離" : "总距离"): \(distKm)")
+        }
+        if let dur = durationSeconds, dur > 0 {
+            let totalM = Int(dur) / 60
+            let s = Int(dur) % 60
+            let durStr = "\(totalM)分\(s)秒"
+            promptLines.append("- \(isJa ? "所要時間" : "总时长"): \(durStr)")
+            if let d = distanceMeters, d > 0 {
+                let paceSec = dur / (d / 1000.0)
+                let pm = Int(paceSec) / 60
+                let ps = Int(paceSec) % 60
+                promptLines.append("- \(isJa ? "平均ペース" : "平均配速"): \(pm)'\(String(format: "%02d", ps))\" /km")
+            }
+        }
+        if let hr = avgHr {
+            promptLines.append("- \(isJa ? "平均心拍数" : "平均心率"): \(Int(hr)) bpm")
+        }
+        if let mhr = maxHr {
+            promptLines.append("- \(isJa ? "最大心拍数" : "最大心率"): \(Int(mhr)) bpm")
+        }
+
+        promptLines.append("")
+        promptLines.append(isJa ? "【運動生理学シグナル】" : "【运动生理学核心解算】")
+        if let dec = decouplingPercent {
+            let sign = dec > 0 ? "+" : ""
+            promptLines.append("- \(isJa ? "有酸素デカップリング率 (Pa:HR)" : "有氧脱钩率 (Pa:HR)"): \(sign)\(String(format: "%.1f", dec))%")
+        }
+        if let h1 = half1Pace, let h2 = half2Pace {
+            promptLines.append("- \(isJa ? "前後半ペース" : "前/后半程配速对比"): 前半 \(h1) vs 后半 \(h2)")
+        }
+        if let cv = paceCV {
+            promptLines.append("- \(isJa ? "ペース変動係数 (Pace CV)" : "配速变异系数 (Pace CV)"): \(String(format: "%.1f", cv))%")
+        }
+        if let cad = cadenceStability {
+            promptLines.append("- \(isJa ? "ピッチ安定度" : "步频稳态专注度"): \(String(format: "%.1f", cad))%")
+        }
+
+        if let zones = hrZonesSummary, !zones.isEmpty {
+            promptLines.append("")
+            promptLines.append("- \(isJa ? "心拍ゾーン構成" : "心率区间构成"): \(zones)")
+        }
+        if let w = weather, !w.isEmpty {
+            promptLines.append("- \(isJa ? "気象・環境" : "天气与气温"): \(w)")
+        }
+        if let s = shoe, !s.isEmpty {
+            promptLines.append("- \(isJa ? "着用シューズ" : "关联跑鞋"): \(s)")
+        }
+
+        let userPrompt = promptLines.joined(separator: "\n")
+
+        do {
+            let result: String
+            switch prefs.aiProvider {
+            case .deepseek:
+                result = try await DeepSeekService.shared.generateDebrief(
+                    prompt: userPrompt,
+                    systemPrompt: systemPrompt,
+                    apiKey: prefs.deepseekApiKey,
+                    baseUrl: prefs.deepseekBaseUrl,
+                    model: prefs.deepseekModel
+                )
+            case .gemini:
+                result = try await GeminiService.shared.generateDebrief(
+                    prompt: userPrompt,
+                    systemPrompt: systemPrompt,
+                    apiKey: prefs.geminiApiKey,
+                    baseUrl: prefs.geminiBaseUrl,
+                    model: prefs.geminiModel
+                )
+            }
+            aiDebriefCache[activityId] = result
+        } catch {
+            aiDebriefError = error.localizedDescription
+        }
+
+        isGeneratingAIDebrief = false
     }
 
     // MARK: - Auth & Error Helpers

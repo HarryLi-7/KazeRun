@@ -140,4 +140,103 @@ final class GeminiService {
         }
         return nil
     }
+
+    func generateDebrief(prompt: String, systemPrompt: String, apiKey: String, baseUrl: String, model: String) async throws -> String {
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty else {
+            throw NSError(domain: "GeminiService", code: 401, userInfo: [NSLocalizedDescriptionKey: "请先在设置中填写 Gemini API Key"])
+        }
+
+        var cleanBaseUrl = baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanBaseUrl.hasSuffix("/") {
+            cleanBaseUrl = String(cleanBaseUrl.dropLast())
+        }
+        if cleanBaseUrl.isEmpty {
+            cleanBaseUrl = "https://generativelanguage.googleapis.com"
+        }
+
+        let cleanModel = model.isEmpty ? "gemini-flash-latest" : model
+        guard let url = URL(string: "\(cleanBaseUrl)/v1beta/models/\(cleanModel):generateContent") else {
+            throw NSError(domain: "GeminiService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Gemini API URL 格式无效"])
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(cleanKey, forHTTPHeaderField: "x-goog-api-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if #available(macOS 11.3, *) {
+            request.assumesHTTP3Capable = false
+        }
+        request.timeoutInterval = 30.0
+
+        let payload: [String: Any] = [
+            "system_instruction": [
+                "parts": [
+                    ["text": systemPrompt]
+                ]
+            ],
+            "contents": [
+                [
+                    "role": "user",
+                    "parts": [
+                        ["text": prompt]
+                    ]
+                ]
+            ],
+            "generationConfig": [
+                "temperature": 0.3,
+                "maxOutputTokens": 1200
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let systemConfig = URLSessionConfiguration.ephemeral
+        systemConfig.tlsMinimumSupportedProtocolVersion = .TLSv12
+        systemConfig.tlsMaximumSupportedProtocolVersion = .TLSv13
+        systemConfig.timeoutIntervalForRequest = 25.0
+        systemConfig.timeoutIntervalForResource = 35.0
+        let systemSession = URLSession(configuration: systemConfig)
+
+        do {
+            return try await executeGenerate(session: systemSession, request: request)
+        } catch let firstError as NSError {
+            let directConfig = URLSessionConfiguration.ephemeral
+            directConfig.connectionProxyDictionary = [:]
+            directConfig.tlsMinimumSupportedProtocolVersion = .TLSv12
+            directConfig.tlsMaximumSupportedProtocolVersion = .TLSv13
+            directConfig.timeoutIntervalForRequest = 25.0
+            directConfig.timeoutIntervalForResource = 35.0
+            let directSession = URLSession(configuration: directConfig)
+
+            do {
+                return try await executeGenerate(session: directSession, request: request)
+            } catch {
+                throw firstError
+            }
+        }
+    }
+
+    private func executeGenerate(session: URLSession, request: URLRequest) async throws -> String {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(domain: "GeminiService", code: -1, userInfo: [NSLocalizedDescriptionKey: "非标准 HTTP 响应"])
+        }
+
+        if http.statusCode == 200 {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let candidates = json["candidates"] as? [[String: Any]],
+               let firstCandidate = candidates.first,
+               let content = firstCandidate["content"] as? [String: Any],
+               let parts = content["parts"] as? [[String: Any]],
+               let firstPart = parts.first,
+               let text = firstPart["text"] as? String {
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            throw NSError(domain: "GeminiService", code: 500, userInfo: [NSLocalizedDescriptionKey: "无法解析模型返回的数据结构"])
+        } else {
+            let errText = parseErrorMessage(data: data) ?? "HTTP \(http.statusCode)"
+            throw NSError(domain: "GeminiService", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Gemini 调用失败 (\(http.statusCode)): \(errText)"])
+        }
+    }
 }
