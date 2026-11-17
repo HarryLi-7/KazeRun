@@ -20,7 +20,13 @@ final class GeminiService {
         }
 
         // 1. Try GET /v1beta/models (0-Token official discovery & validation)
-        guard let modelsUrl = URL(string: "\(cleanBaseUrl)/v1beta/models") else {
+        // Inject ?key= parameter to ensure maximum compatibility across proxies and Google endpoints
+        var components = URLComponents(string: "\(cleanBaseUrl)/v1beta/models")
+        var queryItems = components?.queryItems ?? []
+        queryItems.append(URLQueryItem(name: "key", value: cleanKey))
+        components?.queryItems = queryItems
+
+        guard let modelsUrl = components?.url ?? URL(string: "\(cleanBaseUrl)/v1beta/models") else {
             return .failure(error: "Base URL 格式无效")
         }
 
@@ -28,8 +34,13 @@ final class GeminiService {
         request.httpMethod = "GET"
         request.setValue(cleanKey, forHTTPHeaderField: "x-goog-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 10.0
+        request.timeoutInterval = 12.0
 
+        // Perform request with 1-time retry for transient TLS/proxy handshake resets
+        return await executeWithRetry(request: request, attempt: 1)
+    }
+
+    private func executeWithRetry(request: URLRequest, attempt: Int) async -> AIConnectionState {
         let start = DispatchTime.now()
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -67,8 +78,26 @@ final class GeminiService {
                 let errText = parseErrorMessage(data: data) ?? "HTTP \(http.statusCode)"
                 return .failure(error: "连接失败 (\(http.statusCode)): \(errText)")
             }
-        } catch {
-            return .failure(error: "网络连接失败: \(error.localizedDescription)")
+        } catch let nsError as NSError {
+            // Transient TLS or timeout glitch: retry once after 500ms
+            if attempt == 1 && (nsError.code == NSURLErrorSecureConnectionFailed || nsError.code == NSURLErrorTimedOut || nsError.code == NSURLErrorNetworkConnectionLost) {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                return await executeWithRetry(request: request, attempt: 2)
+            }
+
+            if nsError.domain == NSURLErrorDomain {
+                switch nsError.code {
+                case NSURLErrorSecureConnectionFailed:
+                    return .failure(error: "代理节点 TLS 握手中断，请检查小火箭节点出海连通性后重试")
+                case NSURLErrorTimedOut:
+                    return .failure(error: "连接超时，建议在小火箭切换延迟更低的出海节点重试")
+                case NSURLErrorCannotConnectToHost:
+                    return .failure(error: "无法连接到服务器，请检查代理网络服务")
+                default:
+                    break
+                }
+            }
+            return .failure(error: "网络连接失败: \(nsError.localizedDescription)")
         }
     }
 
