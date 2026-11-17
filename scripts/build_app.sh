@@ -14,7 +14,14 @@ cd "$ROOT_DIR"
 swift build -c release
 
 BIN_PATH="$ROOT_DIR/.build/release/$APP_NAME"
-rm -rf "$APP_BUNDLE"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+if [ -d "$APP_BUNDLE" ]; then
+    if [ -x "$LSREGISTER" ]; then
+        "$LSREGISTER" -u "$APP_BUNDLE" 2>/dev/null || true
+    fi
+    rm -rf "$APP_BUNDLE"
+fi
 mkdir -p "$MACOS_DIR" "$RES_DIR/sidecar"
 
 cp "$BIN_PATH" "$MACOS_DIR/$APP_NAME"
@@ -56,5 +63,10 @@ cat > "$CONTENTS/Info.plist" << 'EOF'
 </dict>
 </plist>
 EOF
+
+if [ -x "$LSREGISTER" ]; then
+    "$LSREGISTER" -f "$APP_BUNDLE" 2>/dev/null || true
+fi
+mdimport "$APP_BUNDLE" 2>/dev/null || true
 
 echo "Created app bundle: $APP_BUNDLE"
