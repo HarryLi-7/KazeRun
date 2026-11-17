@@ -20,13 +20,7 @@ final class GeminiService {
         }
 
         // 1. Try GET /v1beta/models (0-Token official discovery & validation)
-        // Inject ?key= parameter to ensure maximum compatibility across proxies and Google endpoints
-        var components = URLComponents(string: "\(cleanBaseUrl)/v1beta/models")
-        var queryItems = components?.queryItems ?? []
-        queryItems.append(URLQueryItem(name: "key", value: cleanKey))
-        components?.queryItems = queryItems
-
-        guard let modelsUrl = components?.url ?? URL(string: "\(cleanBaseUrl)/v1beta/models") else {
+        guard let modelsUrl = URL(string: "\(cleanBaseUrl)/v1beta/models") else {
             return .failure(error: "Base URL 格式无效")
         }
 
@@ -34,16 +28,53 @@ final class GeminiService {
         request.httpMethod = "GET"
         request.setValue(cleanKey, forHTTPHeaderField: "x-goog-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if #available(macOS 11.3, *) {
+            request.assumesHTTP3Capable = false
+        }
         request.timeoutInterval = 12.0
 
-        // Perform request with 1-time retry for transient TLS/proxy handshake resets
-        return await executeWithRetry(request: request, attempt: 1)
+        // Attempt 1: Standard system network configuration (inherits system proxy/VPN if present)
+        let systemConfig = URLSessionConfiguration.ephemeral
+        systemConfig.tlsMinimumSupportedProtocolVersion = .TLSv12
+        systemConfig.tlsMaximumSupportedProtocolVersion = .TLSv13
+        systemConfig.timeoutIntervalForRequest = 10.0
+        systemConfig.timeoutIntervalForResource = 15.0
+        let systemSession = URLSession(configuration: systemConfig)
+
+        let result = await executeRequest(session: systemSession, request: request)
+        switch result {
+        case .success:
+            return result
+        case .failure(let firstError):
+            // Attempt 2: If system proxy caused a TLS handshake abort or host unreachable,
+            // fall back to direct socket connection (bypassing HTTP proxy, using native network / TUN).
+            let directConfig = URLSessionConfiguration.ephemeral
+            directConfig.connectionProxyDictionary = [:] // Bypass HTTP proxy for direct connectivity
+            directConfig.tlsMinimumSupportedProtocolVersion = .TLSv12
+            directConfig.tlsMaximumSupportedProtocolVersion = .TLSv13
+            directConfig.timeoutIntervalForRequest = 10.0
+            directConfig.timeoutIntervalForResource = 15.0
+            let directSession = URLSession(configuration: directConfig)
+
+            let directResult = await executeRequest(session: directSession, request: request)
+            switch directResult {
+            case .success:
+                return directResult
+            case .failure:
+                // Both attempts failed, return the most descriptive error
+                return .failure(error: firstError)
+            case .idle, .testing:
+                return directResult
+            }
+        case .idle, .testing:
+            return result
+        }
     }
 
-    private func executeWithRetry(request: URLRequest, attempt: Int) async -> AIConnectionState {
+    private func executeRequest(session: URLSession, request: URLRequest) async -> AIConnectionState {
         let start = DispatchTime.now()
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             let latency = Int(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
 
             guard let http = response as? HTTPURLResponse else {
@@ -79,20 +110,16 @@ final class GeminiService {
                 return .failure(error: "连接失败 (\(http.statusCode)): \(errText)")
             }
         } catch let nsError as NSError {
-            // Transient TLS or timeout glitch: retry once after 500ms
-            if attempt == 1 && (nsError.code == NSURLErrorSecureConnectionFailed || nsError.code == NSURLErrorTimedOut || nsError.code == NSURLErrorNetworkConnectionLost) {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                return await executeWithRetry(request: request, attempt: 2)
-            }
-
             if nsError.domain == NSURLErrorDomain {
                 switch nsError.code {
                 case NSURLErrorSecureConnectionFailed:
-                    return .failure(error: "代理节点 TLS 握手中断，请检查小火箭节点出海连通性后重试")
+                    return .failure(error: "安全连接失败 (TLS 握手异常)，请检查当前网络状态或代理服务配置")
                 case NSURLErrorTimedOut:
-                    return .failure(error: "连接超时，建议在小火箭切换延迟更低的出海节点重试")
+                    return .failure(error: "连接超时，请检查网络连接或尝试更换接入点")
                 case NSURLErrorCannotConnectToHost:
-                    return .failure(error: "无法连接到服务器，请检查代理网络服务")
+                    return .failure(error: "无法连接到服务，请确认网络连接或接入点 (Base URL) 是否有效")
+                case NSURLErrorNetworkConnectionLost:
+                    return .failure(error: "网络连接中断，请重试")
                 default:
                     break
                 }

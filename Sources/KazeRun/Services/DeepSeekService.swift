@@ -37,6 +37,9 @@ final class DeepSeekService {
         request.httpMethod = "GET"
         request.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if #available(macOS 11.3, *) {
+            request.assumesHTTP3Capable = false
+        }
         request.timeoutInterval = 10.0
 
         let start = DispatchTime.now()
